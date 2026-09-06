@@ -57,10 +57,22 @@ const defaultRecurringForm = {
   nextDate: new Date().toISOString().slice(0, 10),
 };
 
-const readStorage = (key, fallback) => {
+const readStorage = (key, fallback, type = 'any') => {
   try {
     const item = window.localStorage.getItem(key);
-    return item ? JSON.parse(item) : fallback;
+    if (!item) return fallback;
+
+    const parsed = JSON.parse(item);
+
+    if (type === 'array' && !Array.isArray(parsed)) {
+      return fallback;
+    }
+
+    if (type === 'object' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+      return fallback;
+    }
+
+    return parsed;
   } catch {
     return fallback;
   }
@@ -93,11 +105,17 @@ const isValidInrAmount = (value) => {
 };
 
 function App() {
-  const [transactions, setTransactions] = useState(() => readStorage(STORAGE_KEY, seedTransactions));
-  const [user, setUser] = useState(() => readStorage(USER_KEY, defaultUserState));
+  const [transactions, setTransactions] = useState(() => {
+    const stored = readStorage(STORAGE_KEY, seedTransactions, 'array');
+    return Array.isArray(stored) && stored.length > 0 ? stored : seedTransactions;
+  });
+  const [user, setUser] = useState(() => readStorage(USER_KEY, defaultUserState, 'object'));
   const [currentView, setCurrentView] = useState('dashboard');
-  const [categories, setCategories] = useState(() => readStorage(CATEGORY_KEY, baseCategories));
-  const [recurringBills, setRecurringBills] = useState(() => readStorage(RECURRING_KEY, []));
+  const [categories, setCategories] = useState(() => {
+    const stored = readStorage(CATEGORY_KEY, baseCategories, 'array');
+    return Array.isArray(stored) && stored.length > 0 ? stored : baseCategories;
+  });
+  const [recurringBills, setRecurringBills] = useState(() => readStorage(RECURRING_KEY, [], 'array'));
   const [form, setForm] = useState(defaultForm);
   const [authForm, setAuthForm] = useState(defaultAuthForm);
   const [budgetInput, setBudgetInput] = useState(user.monthlyBudget || 25000);
@@ -978,9 +996,324 @@ function App() {
                     )}
                   </div>
                 </div>
+
+                <div className="category-list">
+                  {categoryEntries.length > 0 ? (
+                    categoryEntries.map(([category, total]) => (
+                      <div className="category-item" key={category}>
+                        <div className="category-label">
+                          <span
+                            className="dot"
+                            style={{ background: categoryColors[category] || '#64748b' }}
+                          />
+                          {category}
+                        </div>
+                        <strong>{formatCurrency(total)}</strong>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-state">No expenses yet.</p>
+                  )}
+                </div>
               </div>
             </section>
           </>
+        )}
+
+        {currentView === 'transactions' && (
+          <section className="panel table-panel">
+            <div className="panel-header table-header">
+              <h3>Recent Transactions</h3>
+              <span className="table-count">{filteredTransactions.length} found</span>
+            </div>
+
+            <div className="filter-bar">
+              <input
+                type="text"
+                name="search"
+                value={transactionFilters.search}
+                onChange={handleTransactionFilterChange}
+                placeholder="Search title..."
+              />
+
+              <select name="type" value={transactionFilters.type} onChange={handleTransactionFilterChange}>
+                <option value="all">All types</option>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+              </select>
+
+              <select
+                name="category"
+                value={transactionFilters.category}
+                onChange={handleTransactionFilterChange}
+              >
+                <option value="all">All categories</option>
+                {categories.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+
+              <div className="date-filter-group">
+                <input
+                  type="date"
+                  name="startDate"
+                  value={transactionFilters.startDate}
+                  onChange={handleTransactionFilterChange}
+                />
+                <input
+                  type="date"
+                  name="endDate"
+                  value={transactionFilters.endDate}
+                  onChange={handleTransactionFilterChange}
+                />
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Category</th>
+                  <th>Type</th>
+                  <th>Date</th>
+                  <th>Amount</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentTransactions.length > 0 ? (
+                  recentTransactions.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.title}</td>
+                      <td>{item.category}</td>
+                      <td>
+                        <span className={`badge ${item.type}`}>{item.type}</span>
+                      </td>
+                      <td>{new Date(item.date).toLocaleDateString()}</td>
+                      <td className={item.type === 'income' ? 'income-text' : 'expense-text'}>
+                        {item.type === 'income' ? '+' : '-'}
+                        {formatCurrency(item.amount)}
+                      </td>
+                      <td className="table-actions">
+                        <button className="secondary-btn action-btn" type="button" onClick={() => handleEdit(item)}>
+                          Edit
+                        </button>
+                        <button className="delete-btn" type="button" onClick={() => handleDelete(item.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="empty-state-cell">
+                      No matching transactions found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {currentView === 'monthly' && (
+          <>
+            <section className="stats-grid">
+              <div className="panel mini-panel">
+                <h3>This Month</h3>
+                <p className="stat-value">{formatCurrency(monthlyOverview.totalExpenseThisMonth)}</p>
+                <span>Spent this month</span>
+              </div>
+              <div className="panel mini-panel">
+                <h3>Transactions</h3>
+                <p className="stat-value">{monthlyOverview.transactionCount}</p>
+                <span>Entries recorded</span>
+              </div>
+              <div className="panel mini-panel">
+                <h3>Budget Status</h3>
+                <p className="stat-value">{summary.budgetWarning ? 'Alert' : 'On Track'}</p>
+                <span>{summary.budgetWarning ? 'Spending exceeds target' : 'Within monthly target'}</span>
+              </div>
+            </section>
+
+            <section className="panel trend-panel">
+              <div className="panel-header">
+                <h3>6-Month Trend</h3>
+              </div>
+
+              <div className="trend-chart">
+                {monthlyTrend.map((month) => {
+                  const maxValue = Math.max(...monthlyTrend.map((entry) => Math.max(entry.income, entry.expense)), 1);
+                  const incomeHeight = (month.income / maxValue) * 100;
+                  const expenseHeight = (month.expense / maxValue) * 100;
+
+                  return (
+                    <div key={`${month.label}-${month.income}-${month.expense}`} className="trend-column">
+                      <div className="trend-bars">
+                        <span className="trend-bar income-bar" style={{ height: `${incomeHeight}%` }} />
+                        <span className="trend-bar expense-bar" style={{ height: `${expenseHeight}%` }} />
+                      </div>
+                      <small>{month.label}</small>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </>
+        )}
+
+        {currentView === 'reports' && (
+          <section className="report-panel panel">
+            <div className="panel-header">
+              <h3>Monthly Summary</h3>
+            </div>
+
+            <div className="report-grid">
+              <div>
+                <p className="report-label">Income</p>
+                <h4>{formatCurrency(summary.totalIncome)}</h4>
+              </div>
+              <div>
+                <p className="report-label">Expenses</p>
+                <h4>{formatCurrency(summary.totalExpense)}</h4>
+              </div>
+              <div>
+                <p className="report-label">Remaining</p>
+                <h4>{formatCurrency(summary.balance)}</h4>
+              </div>
+            </div>
+
+            <div className="report-list">
+              {categoryEntries.map(([category, total]) => (
+                <div key={category} className="report-item">
+                  <span>{category}</span>
+                  <strong>{formatCurrency(total)}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {currentView === 'settings' && (
+          <section className="panel recurring-panel">
+            <div className="panel-header">
+              <h3>Recurring Bills</h3>
+            </div>
+
+            <form onSubmit={handleRecurringSubmit} className="recurring-form">
+              <div className="field-row">
+                <div className="field-group">
+                  <label>Bill name</label>
+                  <input
+                    name="title"
+                    value={recurringForm.title}
+                    onChange={handleRecurringChange}
+                    placeholder="Internet, Rent, Gym..."
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label>Category</label>
+                  <select name="category" value={recurringForm.category} onChange={handleRecurringChange}>
+                    {categories.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="field-row">
+                <div className="field-group">
+                  <label>Amount</label>
+                  <input
+                    type="number"
+                    name="amount"
+                    value={recurringForm.amount}
+                    onChange={handleRecurringChange}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label>Frequency</label>
+                  <select name="frequency" value={recurringForm.frequency} onChange={handleRecurringChange}>
+                    <option value="monthly">Monthly</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="field-group">
+                <label>Next due date</label>
+                <input type="date" name="nextDate" value={recurringForm.nextDate} onChange={handleRecurringChange} />
+              </div>
+
+              <button type="submit" className="primary-btn full-width">Add recurring bill</button>
+            </form>
+
+            <div className="recurring-list">
+              {recurringBills.length > 0 ? (
+                recurringBills.map((bill) => (
+                  <div key={bill.id} className="recurring-item">
+                    <div>
+                      <strong>{bill.title}</strong>
+                      <small>
+                        {bill.frequency} • {bill.category}
+                      </small>
+                    </div>
+                    <div className="recurring-meta">
+                      <span>{formatCurrency(bill.amount)}</span>
+                      <button type="button" className="delete-btn" onClick={() => handleRecurringDelete(bill.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-state">No recurring bills yet.</p>
+              )}
+            </div>
+          </section>
+        )}
+
+        {currentView === 'settings' && (
+          <section className="panel settings-panel">
+            <div className="panel-header">
+              <h3>Profile & Budget</h3>
+            </div>
+
+            <div className="settings-card">
+              <div className="user-summary">
+                <span className="user-tag">{user.provider === 'google' ? 'Google account' : 'Guest mode'}</span>
+                <h4>{user.name || 'MyBillLedger User'}</h4>
+                <p>{user.email || 'guest@mybillledger.local'}</p>
+              </div>
+
+              <form onSubmit={handleBudgetSave} className="settings-form">
+                <div className="field-group">
+                  <label>Monthly budget target</label>
+                  <input
+                    type="number"
+                    value={budgetInput}
+                    onChange={(event) => setBudgetInput(event.target.value)}
+                    placeholder="25000"
+                  />
+                </div>
+
+                <div className="settings-actions">
+                  <button type="submit" className="primary-btn">Save budget</button>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => setBudgetInput(25000)}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </form>
+            </div>
+          </section>
         )}
       </main>
     </div>
