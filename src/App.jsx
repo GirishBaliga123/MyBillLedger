@@ -254,6 +254,13 @@ function App() {
 
   const categoryEntries = Object.entries(summary.monthlyCategoryTotals).sort((a, b) => b[1] - a[1]);
   const topCategories = categoryEntries.slice(0, 3);
+  const reportChartData = useMemo(() => {
+    return categoryEntries.map(([category, total]) => ({
+      category,
+      total,
+      color: categoryColors[category] || '#64748b',
+    }));
+  }, [categoryEntries]);
 
   const monthlyOverview = useMemo(() => {
     const currentMonth = new Date().getMonth();
@@ -440,34 +447,6 @@ function App() {
       handleCancelEdit();
     }
     setMessage({ type: 'success', text: 'Transaction deleted successfully.' });
-  };
-
-  const handleExportCsv = () => {
-    const rowsToExport = filteredTransactions.length > 0 ? filteredTransactions : transactions;
-    const csvRows = [
-      ['Title', 'Category', 'Type', 'Amount', 'Date'],
-      ...rowsToExport.map((item) => [item.title, item.category, item.type, item.amount, item.date]),
-    ];
-
-    const csvContent = csvRows
-      .map((row) =>
-        row
-          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-          .join(','),
-      )
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'mybillledger-transactions.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    setMessage({ type: 'success', text: 'Transactions exported successfully.' });
   };
 
   const handleExportPdf = () => {
@@ -811,9 +790,6 @@ function App() {
           </div>
 
           <div className="topbar-actions">
-            <button className="secondary-btn" type="button" onClick={handleExportCsv}>
-              Export CSV
-            </button>
             <button className="secondary-btn" type="button" onClick={handleExportPdf}>
               Export PDF
             </button>
@@ -1023,8 +999,14 @@ function App() {
         {currentView === 'transactions' && (
           <section className="panel table-panel">
             <div className="panel-header table-header">
-              <h3>Recent Transactions</h3>
-              <span className="table-count">{filteredTransactions.length} found</span>
+              <div>
+                <h3>Recent Transactions</h3>
+                <span className="table-count">{filteredTransactions.length} records found</span>
+              </div>
+              <div className="transaction-summary-inline">
+                <span>Income: <strong>{formatCurrency(summary.totalIncome)}</strong></span>
+                <span>Spend: <strong>{formatCurrency(summary.totalExpense)}</strong></span>
+              </div>
             </div>
 
             <div className="filter-bar">
@@ -1069,70 +1051,77 @@ function App() {
               </div>
             </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Title</th>
-                  <th>Category</th>
-                  <th>Type</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentTransactions.length > 0 ? (
-                  recentTransactions.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.title}</td>
-                      <td>{item.category}</td>
-                      <td>
-                        <span className={`badge ${item.type}`}>{item.type}</span>
-                      </td>
-                      <td>{new Date(item.date).toLocaleDateString()}</td>
-                      <td className={item.type === 'income' ? 'income-text' : 'expense-text'}>
-                        {item.type === 'income' ? '+' : '-'}
-                        {formatCurrency(item.amount)}
-                      </td>
-                      <td className="table-actions">
-                        <button className="secondary-btn action-btn" type="button" onClick={() => handleEdit(item)}>
-                          Edit
-                        </button>
-                        <button className="delete-btn" type="button" onClick={() => handleDelete(item.id)}>
-                          Delete
-                        </button>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Type</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTransactions.length > 0 ? (
+                    recentTransactions.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.title}</td>
+                        <td>{item.category}</td>
+                        <td>
+                          <span className={`badge ${item.type}`}>{item.type}</span>
+                        </td>
+                        <td>{new Date(item.date).toLocaleDateString()}</td>
+                        <td className={item.type === 'income' ? 'income-text' : 'expense-text'}>
+                          {item.type === 'income' ? '+' : '-'}
+                          {formatCurrency(item.amount)}
+                        </td>
+                        <td className="table-actions">
+                          <button className="secondary-btn action-btn" type="button" onClick={() => handleEdit(item)}>
+                            Edit
+                          </button>
+                          <button className="delete-btn" type="button" onClick={() => handleDelete(item.id)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="empty-state-cell">
+                        No matching transactions found.
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="6" className="empty-state-cell">
-                      No matching transactions found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
 
         {currentView === 'monthly' && (
           <>
-            <section className="stats-grid">
-              <div className="panel mini-panel">
-                <h3>This Month</h3>
+            <section className="stats-grid monthly-highlights">
+              <div className="panel mini-panel highlight-income">
+                <h3>Income</h3>
+                <p className="stat-value">{formatCurrency(summary.totalIncome)}</p>
+                <span>All recorded income</span>
+              </div>
+              <div className="panel mini-panel highlight-expense">
+                <h3>Spent</h3>
                 <p className="stat-value">{formatCurrency(monthlyOverview.totalExpenseThisMonth)}</p>
-                <span>Spent this month</span>
+                <span>Current month</span>
               </div>
-              <div className="panel mini-panel">
-                <h3>Transactions</h3>
-                <p className="stat-value">{monthlyOverview.transactionCount}</p>
-                <span>Entries recorded</span>
-              </div>
-              <div className="panel mini-panel">
-                <h3>Budget Status</h3>
+              <div className="panel mini-panel highlight-budget">
+                <h3>Budget</h3>
                 <p className="stat-value">{summary.budgetWarning ? 'Alert' : 'On Track'}</p>
-                <span>{summary.budgetWarning ? 'Spending exceeds target' : 'Within monthly target'}</span>
+                <span>{summary.budgetWarning ? 'Over target' : 'Within target'}</span>
+              </div>
+              <div className="panel mini-panel highlight-count">
+                <h3>Entries</h3>
+                <p className="stat-value">{monthlyOverview.transactionCount}</p>
+                <span>Transactions this month</span>
               </div>
             </section>
 
@@ -1169,18 +1158,41 @@ function App() {
             </div>
 
             <div className="report-grid">
-              <div>
+              <div className="report-metric">
                 <p className="report-label">Income</p>
                 <h4>{formatCurrency(summary.totalIncome)}</h4>
               </div>
-              <div>
+              <div className="report-metric">
                 <p className="report-label">Expenses</p>
                 <h4>{formatCurrency(summary.totalExpense)}</h4>
               </div>
-              <div>
+              <div className="report-metric">
                 <p className="report-label">Remaining</p>
                 <h4>{formatCurrency(summary.balance)}</h4>
               </div>
+            </div>
+
+            <div className="report-chart-wrap">
+              {reportChartData.length > 0 ? (
+                <div className="report-chart">
+                  {reportChartData.map(({ category, total, color }) => {
+                    const maxValue = Math.max(...reportChartData.map((item) => item.total), 1);
+                    const height = (total / maxValue) * 100;
+
+                    return (
+                      <div key={category} className="report-bar-group">
+                        <div className="report-bar-column">
+                          <span className="report-bar-value">{formatCurrency(total)}</span>
+                          <div className="report-bar" style={{ height: `${height}%`, background: color }} />
+                        </div>
+                        <small>{category}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="empty-state">No expense data yet.</p>
+              )}
             </div>
 
             <div className="report-list">
